@@ -1,0 +1,661 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>機場接送預約單</title>
+<script>
+  // 在 LINE Developers 後台建立 LIFF 後，把 LIFF ID 貼在這裡（例：'2001234567-AbCdEfGh'）。
+  // 留空時頁面照常運作，只是改用「複製內容」的方式。
+  window.LIFF_ID = '';
+</script>
+<script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<style>
+/* Layout: departure-board band on top; numbered steps on the left, sticky boarding-pass summary on the right (bottom bar on phones) */
+:root {
+  padding-top: env(safe-area-inset-top, 0px);
+  --bg: #edf1f4;
+  --surface: #ffffff;
+  --ink: #15202b;
+  --muted: #5b6a79;
+  --line: #d5dde5;
+  --field: #f5f7f9;
+  --accent: #0d5c63;
+  --accent-soft: #e2f0f0;
+  --accent-ink: #ffffff;
+  --signal: #f2b705;
+  --signal-ink: #1b1600;
+  --signal-soft: #fdf3d3;
+  --warn: #b4441c;
+  --board: #12202c;
+  --board-2: #1b2c3a;
+  --board-ink: #f3e9c6;
+  --board-dim: #8fa1b3;
+  --f-body: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --r: 14px;
+  --shadow: 0 1px 2px rgb(18 32 44 / .06), 0 6px 20px rgb(18 32 44 / .05);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d141b; --surface: #151f29; --ink: #e7edf2; --muted: #98a8b7; --line: #283745; --field: #1b2733;
+    --accent: #4fb3bb; --accent-soft: #173238; --accent-ink: #052024; --signal: #f2b705; --signal-ink: #1b1600; --signal-soft: #3a3110;
+    --warn: #f08a62; --board: #0a1118; --board-2: #142230; --board-ink: #f3e9c6; --board-dim: #7d8fa1;
+    --shadow: 0 1px 2px rgb(0 0 0 / .3); color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d141b; --surface: #151f29; --ink: #e7edf2; --muted: #98a8b7; --line: #283745; --field: #1b2733;
+  --accent: #4fb3bb; --accent-soft: #173238; --accent-ink: #052024; --signal: #f2b705; --signal-ink: #1b1600; --signal-soft: #3a3110;
+  --warn: #f08a62; --board: #0a1118; --board-2: #142230; --board-ink: #f3e9c6; --board-dim: #7d8fa1;
+  --shadow: 0 1px 2px rgb(0 0 0 / .3); color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 15px; line-height: 1.6; }
+.gut { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.inner { max-width: 1120px; margin: 0 auto; }
+
+/* ---------- Top band ---------- */
+.band { background: var(--board); color: var(--board-ink); padding-block: 28px 64px; }
+.band .inner { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 16px; }
+.eyebrow { font-family: var(--f-mono); font-size: 12px; letter-spacing: .2em; color: var(--signal); }
+.band h1 { margin: 4px 0 6px; font-size: clamp(28px, 6vw, 40px); font-weight: 900; letter-spacing: .04em; line-height: 1.2; text-wrap: balance; }
+.band p { margin: 0; color: var(--board-dim); max-width: 46ch; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; font-size: 13.5px; font-weight: 700; white-space: nowrap; }
+.chip.y { background: var(--signal); color: var(--signal-ink); }
+.chip.o { border: 1px solid var(--board-dim); color: var(--board-ink); }
+
+main { margin-top: -40px; padding-block-end: 48px; }
+.grid { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 24px; align-items: start; }
+@media (max-width: 920px) { .grid { grid-template-columns: minmax(0, 1fr); } main { padding-block-end: 120px; } }
+
+/* ---------- Step cards ---------- */
+form { display: grid; gap: 16px; min-width: 0; }
+.step { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow); padding: 20px; display: grid; gap: 16px; }
+.step-h { display: flex; align-items: center; gap: 12px; }
+.num { flex: none; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: var(--accent-ink);
+  font-family: var(--f-mono); font-weight: 600; font-size: 13px; }
+.step-h h2 { margin: 0; font-size: 17px; font-weight: 700; }
+.step-h p { margin: 0; font-size: 13px; color: var(--muted); }
+.step-h > div { display: grid; min-width: 0; }
+
+.row { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; }
+.f { display: grid; gap: 6px; min-width: 0; align-content: start; }
+.lbl { font-size: 13.5px; font-weight: 700; }
+.req::after { content: " *"; color: var(--warn); }
+.hint { font-size: 12.5px; color: var(--muted); }
+input[type=text], input[type=tel], input[type=date], textarea {
+  width: 100%; font: inherit; color: var(--ink); background: var(--field); border: 1px solid var(--line);
+  border-radius: 10px; padding: 10px 12px; min-height: 46px;
+}
+input:hover, textarea:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
+textarea { min-height: 96px; resize: vertical; }
+input.mono { font-family: var(--f-mono); font-weight: 600; font-size: 16px; letter-spacing: .08em; text-transform: uppercase; }
+input:focus-visible, textarea:focus-visible, button:focus-visible, .seg input:focus-visible + span, .tog input:focus-visible + span {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+.invalid { border-color: var(--warn) !important; background: color-mix(in srgb, var(--warn) 6%, var(--field)) !important; }
+.auto { border-color: var(--accent) !important; background: var(--accent-soft) !important; }
+
+/* Trip type */
+.seg { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.seg label { position: relative; cursor: pointer; }
+.seg input { position: absolute; opacity: 0; inset: 0; }
+.seg span { display: grid; grid-template-columns: auto 1fr; align-items: center; column-gap: 12px; padding: 12px 14px; border-radius: 12px;
+  border: 1.5px solid var(--line); background: var(--field); }
+.seg svg { grid-row: span 2; width: 26px; height: 26px; color: var(--muted); }
+.seg b { font-size: 16px; }
+.seg small { color: var(--muted); font-size: 12.5px; }
+.seg input:checked + span { border-color: var(--accent); background: var(--accent-soft); }
+.seg input:checked + span svg { color: var(--accent); }
+
+/* Flight lookup status */
+.fl { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border-radius: 12px; background: var(--field); border: 1px dashed var(--line); font-size: 14px; }
+.fl-ic { flex: none; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: var(--line); color: var(--muted); font-size: 12px; font-weight: 700; margin-top: 1px; }
+.fl-body { display: grid; gap: 2px; min-width: 0; }
+.fl-sub { color: var(--muted); font-size: 12.5px; }
+.fl[data-s="ok"] { border-style: solid; border-color: var(--accent); background: var(--accent-soft); }
+.fl[data-s="ok"] .fl-ic { background: var(--accent); color: var(--accent-ink); }
+.fl[data-s="warn"] { border-style: solid; border-color: var(--signal); background: var(--signal-soft); }
+.fl[data-s="warn"] .fl-ic { background: var(--signal); color: var(--signal-ink); }
+.fl[data-s="miss"] .fl-ic { background: var(--warn); color: #fff; }
+.fl button { font: inherit; font-size: 13px; font-weight: 700; color: var(--accent); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; justify-self: start; }
+
+/* Route timeline */
+.route { display: grid; gap: 0; }
+.stopline { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 0 12px; }
+.rail { position: relative; display: flex; justify-content: center; }
+.rail::before { content: ""; position: absolute; top: 0; bottom: 0; width: 2px; background: var(--line); }
+.stopline:first-child .rail::before { top: 34px; }
+.stopline:last-child .rail::before { bottom: calc(100% - 34px); }
+.pin { position: relative; margin-top: 24px; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center;
+  font-family: var(--f-mono); font-size: 11px; font-weight: 600; background: var(--surface); border: 2px solid var(--muted); color: var(--muted); }
+.pin.a { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.pin.b { background: var(--ink); border-color: var(--ink); color: var(--surface); }
+.stopline .f { padding-block: 6px; }
+.stop-in { display: grid; grid-template-columns: minmax(0, 1fr) 46px; gap: 8px; }
+.icon-btn { border: 1px solid var(--line); background: var(--field); color: var(--muted); border-radius: 10px; cursor: pointer; font-size: 18px; }
+.icon-btn:hover { color: var(--warn); border-color: var(--warn); }
+.ghost { border: 1.5px dashed var(--accent); color: var(--accent); background: transparent; border-radius: 10px;
+  padding: 8px 14px; font: inherit; font-weight: 700; cursor: pointer; justify-self: start; }
+.ghost:hover { background: var(--accent-soft); }
+
+/* Steppers */
+.stepper { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); overflow: hidden; }
+.stepper button { width: 42px; height: 42px; border: 0; background: transparent; color: var(--ink); font-size: 20px; cursor: pointer; }
+.stepper button:hover { background: var(--field); color: var(--accent); }
+.stepper output { min-width: 32px; text-align: center; font-family: var(--f-mono); font-weight: 600; font-size: 16px; font-variant-numeric: tabular-nums; }
+.pax { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 6px 6px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--field); min-height: 46px; }
+
+/* Luggage tiles */
+.lug { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+@media (min-width: 600px) and (max-width: 920px), (min-width: 1060px) { .lug { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.tile { display: grid; gap: 10px; justify-items: center; text-align: center; padding: 14px 10px 12px; border: 1.5px solid var(--line); border-radius: 12px; background: var(--field); }
+.tile.on { border-color: var(--accent); background: var(--accent-soft); }
+.tile svg { color: var(--muted); }
+.tile.on svg { color: var(--accent); }
+.tile .nm { font-weight: 700; line-height: 1.3; }
+.tile .nm small { display: block; font-weight: 400; font-size: 12px; color: var(--muted); }
+.fat { width: 100%; display: grid; gap: 6px; justify-items: center; padding-top: 10px; border-top: 1px dashed var(--line); font-size: 12.5px; font-weight: 700; color: var(--warn); }
+.fat .stepper button { width: 34px; height: 34px; font-size: 17px; }
+.tri { color: var(--warn); }
+
+/* Add-on toggles */
+.addons { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+@media (min-width: 600px) { .addons { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.addon { display: grid; gap: 10px; padding: 14px; border: 1.5px solid var(--line); border-radius: 12px; background: var(--field); align-content: space-between; }
+.addon.on { border-color: var(--accent); background: var(--accent-soft); }
+.addon-t { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.addon-t b { font-size: 15px; }
+.price { font-family: var(--f-mono); font-weight: 600; color: var(--accent); white-space: nowrap; }
+.price small { font-family: var(--f-body); font-weight: 400; color: var(--muted); }
+.notice { margin: 0; font-size: 13px; color: var(--ink); background: var(--signal-soft); border-radius: 10px; padding: 10px 12px; }
+
+/* ---------- Summary / boarding pass ---------- */
+aside { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 16px); display: grid; gap: 12px; min-width: 0; }
+@media (max-width: 920px) { aside { position: static; } }
+.pass { background: var(--board); color: var(--board-ink); border-radius: var(--r); overflow: hidden; box-shadow: var(--shadow); }
+.p-head { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: var(--signal); color: var(--signal-ink); }
+.p-head strong { letter-spacing: .1em; }
+.p-head span { font-family: var(--f-mono); font-weight: 600; font-size: 13px; }
+.p-fl { display: grid; grid-template-columns: 1fr auto; gap: 0 12px; padding: 16px 16px 14px; }
+.k { font-family: var(--f-mono); font-size: 10.5px; letter-spacing: .16em; color: var(--board-dim); }
+.v { font-family: var(--f-mono); font-size: 26px; font-weight: 600; letter-spacing: .05em; font-variant-numeric: tabular-nums; line-height: 1.3; }
+.r { text-align: right; }
+.tear { position: relative; border-top: 2px dashed var(--board-2); margin-inline: 12px; }
+.tear::before, .tear::after { content: ""; position: absolute; top: -10px; width: 18px; height: 18px; border-radius: 50%; background: var(--bg); }
+.tear::before { left: -22px; } .tear::after { right: -22px; }
+.p-route { display: grid; gap: 8px; padding: 14px 16px; font-size: 14px; }
+.p-route div { display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 8px; }
+.p-route .k { padding-top: 3px; }
+.p-route span { overflow-wrap: anywhere; }
+.p-stats { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--board-2); }
+.p-stats div { padding: 10px 12px; display: grid; gap: 2px; border-left: 1px solid var(--board-2); }
+.p-stats div:first-child { border-left: 0; }
+.p-stats b { font-family: var(--f-mono); font-size: 17px; font-weight: 600; }
+details.txt { border-top: 1px solid var(--board-2); }
+details.txt summary { cursor: pointer; padding: 10px 16px; font-size: 13px; color: var(--board-dim); list-style: none; display: flex; justify-content: space-between; }
+details.txt summary::after { content: "展開 ▾"; }
+details.txt[open] summary::after { content: "收合 ▴"; }
+pre#out { margin: 0; padding: 0 16px 16px; font-family: var(--f-body); font-size: 13px; line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 380px; overflow: auto; }
+.empty { color: var(--board-dim); }
+.primary { min-height: 52px; width: 100%; border: 0; border-radius: 12px; background: var(--accent); color: var(--accent-ink); font: inherit; font-weight: 700; font-size: 16px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.primary:hover { filter: brightness(1.08); }
+.secondary { min-height: 42px; width: 100%; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--ink); font: inherit; font-weight: 500; cursor: pointer; }
+.secondary:hover { border-color: var(--accent); color: var(--accent); }
+.msg { font-size: 13.5px; min-height: 1.4em; margin: 0; }
+.msg.ok { color: var(--accent); font-weight: 700; }
+.msg.err { color: var(--warn); font-weight: 700; }
+.how { font-size: 13px; color: var(--muted); margin: 0; }
+
+/* Phone bottom bar */
+.bar { display: none; }
+@media (max-width: 920px) {
+  .bar { display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; align-items: center; gap: 12px;
+    background: var(--board); color: var(--board-ink); padding-top: 10px;
+    padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+    padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  .bar .info { flex: 1; min-width: 0; display: grid; line-height: 1.3; }
+  .bar .info b { font-family: var(--f-mono); font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bar .primary { width: auto; min-height: 46px; padding-inline: 18px; flex: none; }
+}
+@media (max-width: 420px) { .seg small { display: none; } .step { padding: 16px; } }
+@media (prefers-reduced-motion: no-preference) { .primary, .seg span, .tile, .addon, input { transition: background .15s, border-color .15s, filter .15s; } }
+</style>
+</head>
+<body>
+
+<header class="band gut">
+  <div class="inner">
+    <div>
+      <div class="eyebrow">AIRPORT TRANSFER</div>
+      <h1>機場接送預約單</h1>
+      <p id="lead">輸入日期和航班號，系統會自動帶入時間與航廈。填好後複製內容，貼到 LINE 傳給客服。</p>
+    </div>
+    <div class="chips"><span class="chip y">僅收現金</span><span class="chip o">來回請分開填兩張</span></div>
+  </div>
+</header>
+
+<main class="gut">
+  <div class="inner grid">
+    <form id="form" novalidate>
+
+      <section class="step" aria-labelledby="h1">
+        <div class="step-h"><span class="num">1</span><div><h2 id="h1">航班與時間</h2><p>先選接機或送機</p></div></div>
+        <div class="seg" role="radiogroup" aria-label="行程類型">
+          <label><input type="radio" name="trip" id="trip-pick" value="接機" checked><span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 21h20"/><path d="M3.8 13.3 6 15.6l13.4-3.4a2 2 0 0 0-1-3.9l-4.6 1.2L9 5l-2 .5 2.7 5.8-4.2 1.1-1.9-1.6-1.4.4z"/></svg>
+            <b>接機</b><small>從機場到目的地</small></span></label>
+          <label><input type="radio" name="trip" id="trip-drop" value="送機"><span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 21h20"/><path d="m3 12 3 3 13.2-5.3a2 2 0 0 0-1.5-3.7L13 7.9 7 4.3l-2 .8 3.6 4.6-4.1 1.6-2-1z"/></svg>
+            <b>送機</b><small>從出發地到機場</small></span></label>
+        </div>
+        <div class="row">
+          <div class="f"><label for="date" class="lbl req">乘車日期</label><input type="date" id="date"></div>
+          <div class="f"><label for="flight" class="lbl">航班編號</label><input type="text" id="flight" class="mono" placeholder="BR198" autocomplete="off"></div>
+          <div class="f"><label for="time" class="lbl req" id="time-label">抵達時間（24H）</label>
+            <input type="text" id="time" class="mono" inputmode="numeric" placeholder="14:30" maxlength="5" autocomplete="off"></div>
+        </div>
+        <div class="fl" id="fl" data-s="idle" role="status" aria-live="polite">
+          <span class="fl-ic" id="fl-ic" aria-hidden="true">✈</span>
+          <div class="fl-body"><strong id="fl-title">輸入乘車日期和航班編號，自動帶入時間與航廈</strong><span id="fl-sub" class="fl-sub">目前支援桃園機場（TPE）航班</span></div>
+        </div>
+      </section>
+
+      <section class="step" aria-labelledby="h2">
+        <div class="step-h"><span class="num">2</span><div><h2 id="h2">上下車地點</h2><p>中途停點會加收費用，金額請跟客服確認</p></div></div>
+        <div class="route" id="route">
+          <div class="stopline"><div class="rail"><span class="pin a">A</span></div>
+            <div class="f"><label for="from" class="lbl req">乘車地點</label><input type="text" id="from" placeholder="例：桃園機場第二航廈"></div></div>
+          <div id="stops"></div>
+          <div class="stopline"><div class="rail"><span class="pin" aria-hidden="true">+</span></div>
+            <div class="f"><button type="button" class="ghost" id="add-stop">新增中途停點</button></div></div>
+          <div class="stopline"><div class="rail"><span class="pin b">B</span></div>
+            <div class="f"><label for="to" class="lbl req">下車地點</label><input type="text" id="to" placeholder="例：台北市信義區市府路 1 號"></div></div>
+        </div>
+      </section>
+
+      <section class="step" aria-labelledby="h3">
+        <div class="step-h"><span class="num">3</span><div><h2 id="h3">乘客與聯絡人</h2><p>司機會用這支電話聯絡你</p></div></div>
+        <div class="row">
+          <div class="f"><label for="name" class="lbl req">主聯絡人</label><input type="text" id="name" placeholder="王小明" autocomplete="name"></div>
+          <div class="f"><label for="phone" class="lbl req">聯絡電話</label><input type="tel" id="phone" placeholder="0912-345-678" autocomplete="tel"></div>
+          <div class="f"><span class="lbl req">乘車人數</span>
+            <div class="pax"><span class="hint">含大人與小孩</span><div class="stepper" data-key="pax" data-min="1"><button type="button" data-d="-1" aria-label="減少人數">−</button><output id="pax">1</output><button type="button" data-d="1" aria-label="增加人數">+</button></div></div></div>
+        </div>
+      </section>
+
+      <section class="step" aria-labelledby="h4">
+        <div class="step-h"><span class="num">4</span><div><h2 id="h4">行李</h2><p><span class="tri">▲</span> 胖胖箱（加寬、加深的行李箱）請在各尺寸下方另外註明</p></div></div>
+        <div class="lug" id="lug"></div>
+      </section>
+
+      <section class="step" aria-labelledby="h5">
+        <div class="step-h"><span class="num">5</span><div><h2 id="h5">加購服務</h2><p>到時以現金支付</p></div></div>
+        <div class="addons">
+          <div class="addon" id="ad-sign"><div class="addon-t"><b>接機舉牌</b><span class="price">$200</span></div>
+            <div class="stepper" data-key="sign" data-min="0" data-max="1"><button type="button" data-d="-1" aria-label="取消接機舉牌">−</button><output id="sign">0</output><button type="button" data-d="1" aria-label="加購接機舉牌">+</button></div></div>
+          <div class="addon" id="ad-seat"><div class="addon-t"><b>安全座椅</b><span class="price">$200<small> /張</small></span></div>
+            <div class="stepper" data-key="seat" data-min="0" data-max="4"><button type="button" data-d="-1" aria-label="減少安全座椅">−</button><output id="seat">0</output><button type="button" data-d="1" aria-label="增加安全座椅">+</button></div></div>
+          <div class="addon" id="ad-booster"><div class="addon-t"><b>增高墊</b><span class="price">$100<small> /個</small></span></div>
+            <div class="stepper" data-key="booster" data-min="0" data-max="4"><button type="button" data-d="-1" aria-label="減少增高墊">−</button><output id="booster">0</output><button type="button" data-d="1" aria-label="增加增高墊">+</button></div></div>
+        </div>
+        <p class="notice">超額人數、超額行李、中途停靠點會另外收費，請跟客服確認金額，謝謝 ☺️</p>
+      </section>
+
+      <section class="step" aria-labelledby="h6">
+        <div class="step-h"><span class="num">6</span><div><h2 id="h6">需求備註</h2><p>選填</p></div></div>
+        <textarea id="note" aria-labelledby="h6" placeholder="例：有一位長輩行動較慢、需要嬰兒提籃⋯⋯"></textarea>
+      </section>
+    </form>
+
+    <aside>
+      <div class="pass" aria-live="polite">
+        <div class="p-head"><strong id="t-trip">接機</strong><span id="t-date">日期未填</span></div>
+        <div class="p-fl">
+          <span class="k">FLIGHT</span><span class="k r" id="t-time-k">ARRIVE</span>
+          <span class="v" id="t-flight">——</span><span class="v r" id="t-time">--:--</span>
+        </div>
+        <div class="tear"></div>
+        <div class="p-route">
+          <div><span class="k">FROM</span><span id="t-from" class="empty">乘車地點未填</span></div>
+          <div id="t-via-row" hidden><span class="k">VIA</span><span id="t-via"></span></div>
+          <div><span class="k">TO</span><span id="t-to" class="empty">下車地點未填</span></div>
+        </div>
+        <div class="p-stats">
+          <div><span class="k">PAX</span><b id="t-pax">1</b></div>
+          <div><span class="k">BAGS</span><b id="t-bags">0</b></div>
+          <div><span class="k">加購</span><b id="t-extra">$0</b></div>
+        </div>
+        <details class="txt"><summary>傳給客服的文字</summary><pre id="out"></pre></details>
+      </div>
+      <button type="button" class="primary" id="copy">複製預約內容</button>
+      <p class="msg" id="msg" role="status"></p>
+      <p class="how" id="how">複製後貼到 LINE 傳給客服，客服回覆確認後才算預約完成。</p>
+      <button type="button" class="secondary" id="reset">填寫下一張（回程）</button>
+    </aside>
+  </div>
+</main>
+
+<div class="bar" aria-hidden="false">
+  <div class="info"><span class="k" id="b-k">接機</span><b id="b-v">尚未填寫</b></div>
+  <button type="button" class="primary" id="copy2">複製預約內容</button>
+</div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const LUG = [
+    { key: 'carry', name: '隨身登機箱', sub: '約 20 吋以下', h: 26 },
+    { key: 'm', name: '21～25 吋', sub: '中型', h: 32 },
+    { key: 'l', name: '26～29 吋', sub: '大型', h: 38 },
+    { key: 'xl', name: '32～36 吋', sub: '特大型', h: 44 },
+  ];
+  const state = { pax: 1, sign: 0, seat: 0, booster: 0, stops: [] };
+  LUG.forEach(l => { state[l.key] = 0; state[l.key + 'Fat'] = 0; });
+
+  const bag = (h) => `<svg width="34" height="${h}" viewBox="0 0 34 ${h}" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+    <rect x="12" y="1.5" width="10" height="5" rx="2"/><rect x="5" y="6.5" width="24" height="${h - 12}" rx="4"/>
+    <path d="M12 12v${h - 24}M22 12v${h - 24}"/><circle cx="10" cy="${h - 3}" r="1.6"/><circle cx="24" cy="${h - 3}" r="1.6"/></svg>`;
+
+  $('lug').innerHTML = LUG.map(l => `
+    <div class="tile" id="tile-${l.key}">
+      <div style="height:44px;display:flex;align-items:flex-end">${bag(l.h)}</div>
+      <div class="nm">${l.name}<small>${l.sub}</small></div>
+      <div class="stepper" data-key="${l.key}" data-min="0" data-max="20"><button type="button" data-d="-1" aria-label="減少${l.name}">−</button><output id="${l.key}">0</output><button type="button" data-d="1" aria-label="增加${l.name}">+</button></div>
+      <div class="fat" id="${l.key}-fatrow" hidden><span>▲ 其中胖胖箱</span>
+        <div class="stepper" data-key="${l.key}Fat" data-min="0" data-max="0"><button type="button" data-d="-1" aria-label="減少${l.name}胖胖箱">−</button><output id="${l.key}Fat">0</output><button type="button" data-d="1" aria-label="增加${l.name}胖胖箱">+</button></div></div>
+    </div>`).join('');
+
+  // Steppers
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest('.stepper button');
+    if (!b) return;
+    const s = b.parentElement, k = s.dataset.key;
+    const min = +s.dataset.min, max = s.dataset.max === undefined ? 99 : +s.dataset.max;
+    state[k] = Math.max(min, Math.min(max, state[k] + +b.dataset.d));
+    syncFat(); render();
+  });
+  function syncFat() {
+    LUG.forEach(l => {
+      const fs = document.querySelector(`[data-key="${l.key}Fat"]`);
+      fs.dataset.max = state[l.key];
+      state[l.key + 'Fat'] = Math.min(state[l.key + 'Fat'], state[l.key]);
+      $(l.key + '-fatrow').hidden = state[l.key] === 0;
+      $('tile-' + l.key).classList.toggle('on', state[l.key] > 0);
+    });
+  }
+
+  // Stops
+  function drawStops() {
+    $('stops').innerHTML = state.stops.map((v, i) => `
+      <div class="stopline"><div class="rail"><span class="pin">${i + 1}</span></div>
+        <div class="f"><label for="stop-${i}" class="lbl">中途停點 ${i + 1}</label>
+          <div class="stop-in"><input type="text" id="stop-${i}" data-i="${i}" placeholder="停點地址" value="${v.replace(/"/g, '&quot;')}">
+          <button type="button" class="icon-btn" data-rm="${i}" aria-label="刪除停點 ${i + 1}">×</button></div></div></div>`).join('');
+  }
+  $('add-stop').addEventListener('click', () => { state.stops.push(''); drawStops(); render(); $('stop-' + (state.stops.length - 1)).focus(); });
+  $('stops').addEventListener('input', (e) => { if (e.target.dataset.i !== undefined) { state.stops[+e.target.dataset.i] = e.target.value; render(); } });
+  $('stops').addEventListener('click', (e) => { const i = e.target.dataset.rm; if (i !== undefined) { state.stops.splice(+i, 1); drawStops(); render(); } });
+
+  // Time auto-format to HH:MM
+  $('time').addEventListener('input', (e) => {
+    let d = e.target.value.replace(/\D/g, '').slice(0, 4);
+    e.target.value = d.length > 2 ? d.slice(0, 2) + ':' + d.slice(2) : d;
+  });
+  const validTime = (t) => /^([01]\d|2[0-3]):[0-5]\d$/.test(t);
+
+  const trip = () => document.querySelector('input[name=trip]:checked').value;
+  function fmtDate(v) {
+    if (!v) return '';
+    const d = new Date(v + 'T00:00');
+    return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}（${'日一二三四五六'[d.getDay()]}）`;
+  }
+  const extraSum = () => state.sign * 200 + state.seat * 200 + state.booster * 100;
+
+  function buildText() {
+    const t = trip(), val = (id) => $(id).value.trim();
+    const timeLbl = t === '接機' ? '抵達時間' : '上車時間';
+    const lug = LUG.map(l => {
+      const n = state[l.key], f = state[l.key + 'Fat'];
+      return `${l.name.replace(/ /g, '')}：${n}${f ? `（🔺含胖胖箱 ${f} 件）` : ''}`;
+    });
+    const stops = state.stops.map(s => s.trim()).filter(Boolean);
+    const extras = [];
+    if (state.sign) extras.push('接機舉牌 $200');
+    if (state.seat) extras.push(`安全座椅 ×${state.seat}（$${state.seat * 200}）`);
+    if (state.booster) extras.push(`增高墊 ×${state.booster}（$${state.booster * 100}）`);
+    return [
+      `【機場接送預約單｜${t}】`,
+      '',
+      `乘車日期：${fmtDate(val('date'))}`,
+      `航班編號：${val('flight').toUpperCase()}`,
+      `${timeLbl}（24H）：${val('time')}`,
+      `乘車人數：${state.pax} 人`,
+      `主聯絡人：${val('name')}`,
+      `聯絡電話：${val('phone')}`,
+      `乘車地點：${val('from')}`,
+      `中途停點：${stops.length ? stops.join(' → ') : '無'}`,
+      `下車地點：${val('to')}`,
+      '',
+      '⬇️行李🔺胖胖箱需特別註明',
+      ...lug,
+      '',
+      `加購服務：${extras.length ? extras.join('、') + `，合計 $${extraSum()}` : '無'}`,
+      `需求備註：${val('note') || '無'}`,
+      '',
+      '僅供現金支付',
+    ].join('\n');
+  }
+
+  function setText(id, v, empty) { $(id).textContent = v || empty; $(id).classList.toggle('empty', !v); }
+  function render() {
+    const t = trip(), pick = t === '接機';
+    $('time-label').textContent = pick ? '抵達時間（24H）' : '上車時間（24H）';
+    $('t-trip').textContent = t;
+    $('t-time-k').textContent = pick ? 'ARRIVE' : 'PICK-UP';
+    $('t-date').textContent = $('date').value ? fmtDate($('date').value) : '日期未填';
+    $('t-flight').textContent = $('flight').value.trim().toUpperCase() || '——';
+    $('t-time').textContent = $('time').value || '--:--';
+    setText('t-from', $('from').value.trim(), '乘車地點未填');
+    setText('t-to', $('to').value.trim(), '下車地點未填');
+    const stops = state.stops.map(s => s.trim()).filter(Boolean);
+    $('t-via-row').hidden = !stops.length; $('t-via').textContent = stops.join(' → ');
+    $('t-pax').textContent = state.pax;
+    $('t-bags').textContent = LUG.reduce((s, l) => s + state[l.key], 0);
+    $('t-extra').textContent = '$' + extraSum();
+    $('b-k').textContent = `${t}・${state.pax} 人`;
+    $('b-v').textContent = [$('date').value ? $('date').value.slice(5).replace('-', '/') : '', $('time').value, $('flight').value.trim().toUpperCase()].filter(Boolean).join('  ') || '尚未填寫';
+    $('out').textContent = buildText();
+    for (const k of ['pax', 'sign', 'seat', 'booster', ...LUG.flatMap(l => [l.key, l.key + 'Fat'])]) $(k).textContent = state[k];
+    $('ad-sign').classList.toggle('on', state.sign > 0);
+    $('ad-seat').classList.toggle('on', state.seat > 0);
+    $('ad-booster').classList.toggle('on', state.booster > 0);
+    save();
+  }
+
+  // Draft persistence (per-viewer convenience only)
+  const FIELDS = ['date', 'flight', 'time', 'name', 'phone', 'from', 'to', 'note'];
+  function save() {
+    try { localStorage.setItem('ats-draft', JSON.stringify({ trip: trip(), f: Object.fromEntries(FIELDS.map(id => [id, $(id).value])), state })); } catch {}
+  }
+  function load() {
+    try {
+      const d = JSON.parse(localStorage.getItem('ats-draft') || 'null'); if (!d) return;
+      FIELDS.forEach(id => { if (d.f[id] != null) $(id).value = d.f[id]; });
+      Object.assign(state, d.state);
+      document.querySelector(`input[name=trip][value="${d.trip}"]`).checked = true;
+    } catch {}
+  }
+
+  $('form').addEventListener('input', render);
+  $('form').addEventListener('change', render);
+  $('form').addEventListener('submit', (e) => e.preventDefault());
+
+  function validate() {
+    const missing = [];
+    const need = [['date', '乘車日期'], ['name', '主聯絡人'], ['phone', '聯絡電話'], ['from', '乘車地點'], ['to', '下車地點']];
+    document.querySelectorAll('.invalid').forEach(el => el.classList.remove('invalid'));
+    need.forEach(([id, n]) => { if (!$(id).value.trim()) { missing.push(n); $(id).classList.add('invalid'); } });
+    if (!validTime($('time').value)) { missing.push('時間（例 14:30）'); $('time').classList.add('invalid'); }
+    return missing;
+  }
+
+  async function copy() {
+    const msg = $('msg');
+    const missing = validate();
+    if (missing.length) {
+      msg.className = 'msg err'; msg.textContent = '請補上：' + missing.join('、');
+      document.querySelector('.invalid').scrollIntoView({ block: 'center', behavior: 'smooth' });
+      document.querySelector('.invalid').focus({ preventScroll: true });
+      $('b-v').textContent = '還有欄位沒填';
+      return;
+    }
+    const text = buildText();
+    if (inLine) {
+      try {
+        await liff.sendMessages([{ type: 'text', text }]);
+        msg.className = 'msg ok'; msg.textContent = '已送出給客服，請留意 LINE 回覆確認。';
+        $('b-v').textContent = '已送出，等候客服確認';
+        setTimeout(() => liff.closeWindow(), 1800);
+        return;
+      } catch (e) {
+        console.warn('sendMessages failed, falling back to copy', e);  // e.g. opened outside a chat
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      msg.className = 'msg ok'; msg.textContent = '已複製，請貼到 LINE 傳給客服。';
+      $('b-v').textContent = '已複製，貼到 LINE 傳給客服';
+    } catch {
+      document.querySelector('details.txt').open = true;
+      const r = document.createRange(); r.selectNodeContents($('out'));
+      const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+      $('out').scrollIntoView({ block: 'center' });
+      msg.className = 'msg err'; msg.textContent = '無法自動複製，內容已反白，請長按或按 Ctrl/⌘+C 複製。';
+    }
+  }
+  $('copy').addEventListener('click', copy);
+  $('copy2').addEventListener('click', copy);
+
+  // ---- LINE (LIFF): inside LINE, send the booking straight into the chat ----
+  let inLine = false;
+  async function initLiff() {
+    if (!window.LIFF_ID || !window.liff) return;
+    try {
+      await liff.init({ liffId: window.LIFF_ID });
+    } catch (e) { console.warn('LIFF init failed', e); return; }
+    if (!liff.isInClient()) return;  // opened in a normal browser: keep the copy flow
+    inLine = true;
+    $('copy').textContent = $('copy2').textContent = '送出預約給客服';
+    $('lead').textContent = '輸入日期和航班號，系統會自動帶入時間與航廈。填好後按送出，預約會直接傳給客服。';
+    $('how').textContent = '按下後，預約內容會直接傳到客服聊天室。客服回覆確認後才算預約完成。';
+    try {
+      const p = await liff.getProfile();
+      if (!$('name').value.trim() && p.displayName) { $('name').value = p.displayName; render(); }
+    } catch {}
+  }
+  initLiff();
+
+  let armed = false;
+  const RESET = '填寫下一張（回程）';
+  $('reset').addEventListener('click', () => {
+    if (!armed) { armed = true; $('reset').textContent = '再按一次：清空日期航班，對調上下車地點'; setTimeout(() => { armed = false; $('reset').textContent = RESET; }, 4000); return; }
+    armed = false; $('reset').textContent = RESET;
+    // Keep contact info and swap pickup/dropoff for the return trip
+    const from = $('from').value, to = $('to').value;
+    ['date', 'flight', 'time', 'note'].forEach(id => $(id).value = '');
+    $('from').value = to; $('to').value = from;
+    const other = trip() === '接機' ? '送機' : '接機';
+    document.querySelector(`input[name=trip][value="${other}"]`).checked = true;
+    Object.assign(state, { sign: 0, seat: 0, booster: 0, stops: [] });
+    // A terminal we filled moves with the swap and stays replaceable by the next lookup
+    auto.time = null;
+    ['time', 'from', 'to'].forEach(id => {
+      const isAuto = id !== 'time' && /航廈$/.test($(id).value);
+      auto[id] = isAuto ? $(id).value : null; $(id).classList.toggle('auto', isAuto);
+    });
+    drawStops(); syncFat(); render(); lookup();
+    $('msg').className = 'msg ok'; $('msg').textContent = `已切換為${other}：聯絡人保留、上下車地點已對調。`;
+    $('date').scrollIntoView({ block: 'center' }); $('date').focus({ preventScroll: true });
+  });
+
+  // ---- Flight lookup (Taoyuan Airport schedule, refreshed into flights.json) ----
+  let FL = null;
+  const auto = { time: null, from: null, to: null };  // values we filled, so we only overwrite our own
+  const WD = '日一二三四五六日';
+  const normCode = (v) => {
+    const m = v.toUpperCase().replace(/[\s-]/g, '').match(/^([A-Z0-9]{2})(\d{1,4})$/);
+    return m ? m[1] + (m[2].replace(/^0+/, '') || '0') : '';
+  };
+  const termName = (n) => `桃園機場第${n === 1 ? '一' : '二'}航廈`;
+  const ICON = { idle: '✈', ok: '✓', warn: '!', miss: '?' };
+
+  function setFl(s, title, sub, action) {
+    $('fl').dataset.s = s; $('fl-ic').textContent = ICON[s];
+    $('fl-title').textContent = title; $('fl-sub').textContent = sub || '';
+    const old = $('fl').querySelector('button'); if (old) old.remove();
+    if (action) { const b = document.createElement('button'); b.type = 'button'; b.textContent = action.label; b.onclick = action.fn; $('fl').querySelector('.fl-body').append(b); }
+  }
+  function fill(id, value) {
+    const el = $(id);
+    if (el.value.trim() && el.value !== auto[id]) return false;  // keep what the customer typed
+    el.value = value; auto[id] = value; el.classList.add('auto'); el.classList.remove('invalid'); return true;
+  }
+  function clearAuto() {
+    for (const id in auto) if (auto[id] !== null && $(id).value === auto[id]) { $(id).value = ''; $(id).classList.remove('auto'); auto[id] = null; }
+  }
+
+  function lookup() {
+    const code = normCode($('flight').value), dv = $('date').value;
+    if (!FL) return;
+    if (!code || !dv) { clearAuto(); setFl('idle', '輸入乘車日期和航班編號，自動帶入時間與航廈', `目前支援桃園機場（TPE）航班｜班表更新於 ${FL.updated}`); render(); return; }
+    const t = trip(), dir = t === '接機' ? 'A' : 'D', other = dir === 'A' ? 'D' : 'A';
+    const wd = String(new Date(dv + 'T00:00').getDay() || 7);
+    const f = FL.flights[code] || {};
+    let hit = FL.dates[dv] && FL.dates[dv][code + dir], exact = !!hit;
+    if (!hit && f[dir] && f[dir][wd]) hit = f[dir][wd];
+    clearAuto();
+    if (hit) {
+      const [time, term, city] = hit, place = termName(term);
+      const basis = exact ? '機場當日班表' : `依近期每週${WD[+wd]}班表推算，出發前請再確認`;
+      if (dir === 'A') {
+        fill('time', time); fill('from', place);
+        setFl(exact ? 'ok' : 'warn', `${code}　${city} → 桃園 第${term}航廈　表定 ${time} 抵達`, `已帶入抵達時間與乘車地點（${basis}）`);
+      } else {
+        fill('to', place);
+        setFl(exact ? 'ok' : 'warn', `${code}　桃園 第${term}航廈 → ${city}　表定 ${time} 起飛`, `已帶入下車地點。上車時間請自己填，國際線建議起飛前 3 小時到機場（${basis}）`);
+      }
+    } else if (f[other] && !f[dir]) {
+      const sw = t === '接機' ? '送機' : '接機';
+      setFl('warn', `${code} 是${other === 'A' ? '抵達' : '出發'}桃園的航班`, `你選的是「${t}」，要改成「${sw}」嗎？`,
+        { label: `改成${sw}`, fn: () => { document.querySelector(`input[name=trip][value="${sw}"]`).checked = true; render(); lookup(); } });
+    } else if (f[dir]) {
+      const days = Object.keys(f[dir]).sort().map(d => '週' + WD[+d]).join('、');
+      setFl('warn', `${code} 在這天（週${WD[+wd]}）查無班次`, `近期班表只看到 ${days} 有飛，請確認日期或航班號，或直接手動填寫時間。`);
+    } else {
+      setFl('miss', `查不到 ${code}`, '可能不是桃園機場航班，或航班號有誤。請手動填寫時間與地點。');
+    }
+    render();
+  }
+  let lt; const queue = () => { clearTimeout(lt); lt = setTimeout(lookup, 250); };
+  ['flight', 'date'].forEach(id => $(id).addEventListener('input', queue));
+  document.querySelectorAll('input[name=trip]').forEach(r => r.addEventListener('change', queue));
+  ['time', 'from', 'to'].forEach(id => $(id).addEventListener('input', () => { auto[id] = null; $(id).classList.remove('auto'); }));
+
+  load(); drawStops(); syncFat(); render();
+
+  setFl('idle', '正在載入桃園機場班表⋯', '');
+  fetch('flights.json').then(r => r.ok ? r.json() : Promise.reject())
+    .then(d => { FL = d; lookup(); })
+    .catch(() => setFl('miss', '班表暫時無法載入', '請手動填寫時間與地點。'));
+})();
+</script>
+</body>
+</html>
