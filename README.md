@@ -36,17 +36,22 @@ LINE 規定 MINI App 必須是 `https://` 網址，GitHub Pages 免費提供，�
    - **Endpoint URL**：填步驟一第 5 點的網址。
    - **Scopes**：勾選 `profile` 和 `chat_message.write`（送出訊息需要這個）。
 5. 複製頁面上的 **LIFF ID**（格式像 `2001234567-AbCdEfGh`）。
-6. 回到 GitHub，打開 `index.html` → 右上鉛筆圖示編輯，找到這一行：
-   ```js
-   window.LIFF_ID = '';
-   ```
-   把 LIFF ID 貼進引號裡，按 **Commit changes**。
+6. 回到 GitHub，打開 `index.html` → 右上鉛筆圖示編輯，找到 `window.LIFF_IDS`，
+   把 Developing、Review、Published 三組 LIFF ID 分別填進 `dev`、`review`、`published`，按 **Commit changes**。
+7. 三個版本的 Endpoint URL 分別填：
+   - Developing：`https://你的帳號.github.io/airport-booking/?stage=dev`
+   - Review：`https://你的帳號.github.io/airport-booking/?stage=review`
+   - Published：`https://你的帳號.github.io/airport-booking/`
+
+   頁面會依網址上的 `stage` 選用對應的 LIFF ID。
+
+> 目前已設定在「街送」（JaySong接送）這個 MINI App 上，三組 LIFF ID 都已填好。
 
 > 還沒送審的 MINI App 一樣可以用連結打開，只是不會出現在 LINE 的搜尋結果中。若想要「認證 MINI App」標章，再依後台指示送審即可。
 
 ## 步驟三：放進官方帳號
 
-MINI App 的網址是 `https://miniapp.line.me/你的LIFF ID`。
+MINI App 的網址是 `https://miniapp.line.me/你的LIFF ID`（給客人用 Published 那一組，「街送」是 `https://miniapp.line.me/2012137717-bCa9VAAE`）。
 
 到 **LINE Official Account Manager**：
 - **圖文選單**：新增一格「線上預約」，動作選「連結」，貼上網址。

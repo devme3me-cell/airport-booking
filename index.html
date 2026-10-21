@@ -5,9 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>機場接送預約單</title>
 <script>
-  // 在 LINE Developers 後台建立 LIFF 後，把 LIFF ID 貼在這裡（例：'2001234567-AbCdEfGh'）。
-  // 留空時頁面照常運作，只是改用「複製內容」的方式。
-  window.LIFF_ID = '2012137715-DrP2GYS8';
+  // 「街送」MINI App 的三個版本各有一組 LIFF ID，由 Endpoint URL 的 ?stage= 決定用哪一組：
+  //   Developing → ?stage=dev、Review → ?stage=review、Published → 不加參數
+  // 全部留空時頁面照常運作，只是改用「複製內容」的方式。
+  window.LIFF_IDS = { dev: '2012137715-DrP2GYS8', review: '2012137716-C6xGbCit', published: '2012137717-bCa9VAAE' };
+  window.LIFF_ID = window.LIFF_IDS[new URLSearchParams(location.search).get('stage')] || window.LIFF_IDS.published;
 </script>
 <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
